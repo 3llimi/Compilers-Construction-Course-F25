@@ -1,10 +1,10 @@
 use crate::token::Token;
-
+//Lexer Struct
 pub struct Lexer {
     input: Vec<char>,
     pos: usize,
 }
-
+//Lexer Constructor
 impl Lexer {
     pub fn new(input: &str) -> Self {
         Self {
@@ -12,7 +12,7 @@ impl Lexer {
             pos: 0,
         }
     }
-
+    //Peeking and Advancing through the code
     fn peek(&self) -> Option<char> {
         self.input.get(self.pos).cloned()
     }
@@ -24,7 +24,7 @@ impl Lexer {
         }
         ch
     }
-
+    //Skipping WhiteSpaces
     fn skip_whitespace(&mut self) {
         while let Some(c) = self.peek() {
             if c.is_whitespace() {
@@ -34,7 +34,7 @@ impl Lexer {
             }
         }
     }
-
+    //Main Tokenization Function
     pub fn next_token(&mut self) -> Token {
         self.skip_whitespace();
 
@@ -42,7 +42,7 @@ impl Lexer {
             Some(c) => c,
             None => return Token::EOF,
         };
-
+        //Matching Signs
         match ch {
             '+' => Token::Plus,
             '-' => Token::Minus,
@@ -103,7 +103,7 @@ impl Lexer {
             _ => Token::EOF, // placeholder for now
         }
     }
-
+    //Lexing Numbers
     fn lex_number(&mut self, first: char) -> Token {
         let mut s = first.to_string();
         while let Some(c) = self.peek() {
@@ -125,7 +125,7 @@ impl Lexer {
         }
         Token::Integer(s.parse().unwrap())
     }
-
+    //Lexing Identifiers/VarNames
     fn lex_identifier(&mut self, first: char) -> Token {
         let mut s = first.to_string();
         while let Some(c) = self.peek() {
@@ -159,6 +159,7 @@ impl Lexer {
         }
     }
 
+    //Lexing Strings
     fn lex_string(&mut self, quote: char) -> Token {
         let mut s = String::new();
         while let Some(c) = self.peek() {
