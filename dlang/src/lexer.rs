@@ -3,6 +3,8 @@ use crate::token::Token;
 pub struct Lexer {
     input: Vec<char>,
     pos: usize,
+    line: usize,
+    col: usize,
 }
 //Lexer Constructor
 impl Lexer {
@@ -10,6 +12,8 @@ impl Lexer {
         Self {
             input: input.chars().collect(),
             pos: 0,
+            line: 1,
+            col: 1,
         }
     }
     //Peeking and Advancing through the code
@@ -19,11 +23,18 @@ impl Lexer {
 
     fn advance(&mut self) -> Option<char> {
         let ch = self.peek();
-        if ch.is_some() {
+        if let Some(c) = ch {
             self.pos += 1;
+            if c == '\n' {
+                self.line += 1;
+                self.col = 1;
+            } else {
+                self.col += 1;
+            }
         }
         ch
     }
+    
     //Skipping WhiteSpaces
     fn skip_whitespace(&mut self) {
         while let Some(c) = self.peek() {
@@ -55,7 +66,15 @@ impl Lexer {
                     Token::Slash
                 }
             }
-            '=' => Token::Equal,
+            '=' => {
+                if self.peek() == Some('>'){
+                    self.advance();
+                    Token::Arrow
+                } else {
+                    Token::Equal
+                }
+
+            } 
             '<' => {
                 if self.peek() == Some('=') {
                     self.advance();
@@ -77,8 +96,11 @@ impl Lexer {
                     self.advance();
                     Token::Assign
                 } else {
-                    // language doesn’t use bare `:`
-                    Token::EOF
+                    Token::Error {
+                        message: "Unexpected ':'".into(),
+                        line: self.line,
+                        col: self.col,
+                    }
                 }
             }
             '(' => Token::LParen,
@@ -100,7 +122,11 @@ impl Lexer {
             '"' | '\'' => self.lex_string(ch),
             c if c.is_ascii_digit() => self.lex_number(c),
             c if c.is_alphabetic() => self.lex_identifier(c),
-            _ => Token::EOF, // placeholder for now
+            _ => Token::Error {
+                message: format!("Unexpected character: '{}'", ch),
+                line: self.line,
+                col: self.col,
+            },
         }
     }
     //Lexing Numbers
@@ -110,6 +136,9 @@ impl Lexer {
             if c.is_ascii_digit() {
                 s.push(self.advance().unwrap());
             } else if c == '.' {
+                if self.input.get(self.pos + 1) == Some(&'.') {
+                    break;
+                }
                 s.push(self.advance().unwrap());
                 while let Some(c2) = self.peek() {
                     if c2.is_ascii_digit() {
@@ -155,6 +184,7 @@ impl Lexer {
             "or" => Token::Or,
             "xor" => Token::Xor,
             "not" => Token::Not,
+            "in" => Token::In,
             _ => Token::Identifier(s),
         }
     }

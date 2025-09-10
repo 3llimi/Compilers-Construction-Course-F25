@@ -9,12 +9,17 @@ pub enum Token{
   And, Or, Xor, Not,
 
   LParen, RParen, LBrace, RBrace,
-  LBracket, RBracket, Comma, Semicolon, Dot, Range,
+  LBracket, RBracket, Comma, Semicolon, Dot, In, Range, Arrow,
 
   Identifier(String),
   Integer(i64),
   Real(f64),
   String(String),
+  Error {
+    message: String,
+    line: usize,
+    col: usize,
+  },
 
   EOF,
 }
