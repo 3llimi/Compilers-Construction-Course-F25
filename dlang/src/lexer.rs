@@ -38,7 +38,7 @@ impl Lexer {
     //Skipping WhiteSpaces
     fn skip_whitespace(&mut self) {
         while let Some(c) = self.peek() {
-            if c.is_whitespace() {
+            if c == ' ' || c == '\t' || c == '\r' {
                 self.advance();
             } else {
                 break;
@@ -55,6 +55,7 @@ impl Lexer {
         };
         //Matching Signs
         match ch {
+            '\n' => Token::Newline,
             '+' => Token::Plus,
             '-' => Token::Minus,
             '*' => Token::Star,
@@ -62,6 +63,27 @@ impl Lexer {
                 if self.peek() == Some('=') {
                     self.advance();
                     Token::NotEqual
+                } else if self.peek() == Some('/') {
+                    // one-line comment
+                    self.advance(); // skip the second '/'
+                    let mut s = String::new();
+                    while let Some(c) = self.peek() {
+                        if c == '\n' { break; }
+                        s.push(self.advance().unwrap());
+                    }
+                    Token::Comment(s)
+                } else if self.peek() == Some('*') {
+                    // Multi-line comment
+                    self.advance(); // skip '*'
+                    let mut s = String::new();
+                    while let Some(c) = self.advance() {
+                        if c == '*' && self.peek() == Some('/') {
+                            self.advance(); // skip '/'
+                            break;
+                        }
+                        s.push(c);
+                    }
+                    Token::Comment(s)
                 } else {
                     Token::Slash
                 }
@@ -168,6 +190,7 @@ impl Lexer {
         match s.as_str() {
             "var" => Token::Var,
             "if" => Token::If,
+            "func" => Token::Func,
             "then" => Token::Then,
             "else" => Token::Else,
             "end" => Token::End,

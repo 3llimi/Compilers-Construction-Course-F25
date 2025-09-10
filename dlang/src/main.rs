@@ -33,6 +33,17 @@ fn main() {
         "arr[1] := {x:=2,y:=3}.y",
         "for i in [1,2,3] loop print i end",
         "for i in 1..3 loop print i end",
+        r#"
+        var i := 0
+        while i < 3 loop //while cicle
+            var j := 0
+            while j < 2 loop
+                print i, j
+                j := j + 1
+            end
+            i := i + 1
+        end
+        "#,
         "@ # $", // error case
     ];
 
