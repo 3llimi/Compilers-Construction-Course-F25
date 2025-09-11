@@ -1,13 +1,13 @@
 #[derive (Debug, Clone, PartialEq)]
 pub enum Token{
-  Var, If, Then, Else, End, While, For, Loop, Func,
+  Var, If, Then, Else, End, While, For, Loop, Func, Is,
   Exit, Return, Print, True, False, None,
 
   Plus, Minus, Star, Slash, Assign, Equal, NotEqual,
   Less, LessEqual, Greater, GreaterEqual,
   And, Or, Xor, Not,
 
-  LParen, RParen, LBrace, RBrace, LBracket, RBracket, 
+  LParen, RParen, LBrace, RBrace, LBracket, RBracket,
   Comma, Semicolon, Dot, In, Range, Arrow, Newline,
 
   Identifier(String),

@@ -34,7 +34,7 @@ impl Lexer {
         }
         ch
     }
-    
+
     //Skipping WhiteSpaces
     fn skip_whitespace(&mut self) {
         while let Some(c) = self.peek() {
@@ -97,7 +97,7 @@ impl Lexer {
                     Token::Equal
                 }
 
-            } 
+            }
             '<' => {
                 if self.peek() == Some('=') {
                     self.advance();
@@ -152,7 +152,7 @@ impl Lexer {
             },
         }
     }
-    
+
     //Lexing Numbers
     fn lex_number(&mut self, first: char) -> Token {
         let mut s = first.to_string();
@@ -193,6 +193,7 @@ impl Lexer {
             "var" => Token::Var,
             "if" => Token::If,
             "func" => Token::Func,
+            "is" => Token::Is,
             "then" => Token::Then,
             "else" => Token::Else,
             "end" => Token::End,
