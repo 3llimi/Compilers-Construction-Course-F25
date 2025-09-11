@@ -3,8 +3,7 @@ pub enum Token{
   Var, If, Then, Else, End, While, For, Loop, Func,
   Exit, Return, Print, True, False, None,
 
-  Plus, Minus, Star, Slash,
-  Assign, Equal, NotEqual,
+  Plus, Minus, Star, Slash, Assign, Equal, NotEqual,
   Less, LessEqual, Greater, GreaterEqual,
   And, Or, Xor, Not,
 

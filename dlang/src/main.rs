@@ -44,6 +44,17 @@ fn main() {
             i := i + 1
         end
         "#,
+        r#"
+        var outer := func(x) is
+            var inner := func(y) => y + 1
+            return inner(x)
+        end
+        print outer(10)
+        "#,
+        r#"
+        var f := func(x, y) => x * y
+        print f(3, 4)
+        "#,
         "@ # $", // error case
     ];
 

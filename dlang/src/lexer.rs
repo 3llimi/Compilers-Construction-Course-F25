@@ -45,6 +45,7 @@ impl Lexer {
             }
         }
     }
+
     //Main Tokenization Function
     pub fn next_token(&mut self) -> Token {
         self.skip_whitespace();
@@ -151,6 +152,7 @@ impl Lexer {
             },
         }
     }
+    
     //Lexing Numbers
     fn lex_number(&mut self, first: char) -> Token {
         let mut s = first.to_string();
