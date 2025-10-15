@@ -4,6 +4,9 @@ pub mod ast;
 pub mod parser;
 
 #[cfg(test)]
+mod parser_tests;
+
+#[cfg(test)]
 mod tests {
     use super::lexer::Lexer;
     use super::token::Token;

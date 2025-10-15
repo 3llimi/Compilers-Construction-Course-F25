@@ -53,6 +53,7 @@ fn main() {
         var f := func(x, y) => x * y
         print f(3, 4)
         "#,
+        "((t.1).2).3",
         "@ # $", // error case
     ];
 

@@ -19,6 +19,18 @@ pub enum Stmt {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub enum TypeIndicator {
+    Int,
+    Real,
+    Bool,
+    String,
+    None,
+    Array,   // []
+    Tuple,   // {}
+    Func,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
     Integer(i64),
     Real(f64),
@@ -33,7 +45,8 @@ pub enum Expr {
     Index { target: Box<Expr>, index: Box<Expr> },
     Member { target: Box<Expr>, field: String },
     Array(Vec<Expr>),
-    Object(Vec<(String, Expr)>),
+    Tuple(Vec<TupleElement>),
+    IsType { expr: Box<Expr>, type_ind: TypeIndicator },
     Func { params: Vec<String>, body: FuncBody },
 }
 
@@ -55,6 +68,12 @@ pub enum BinOp {
 pub enum UnOp {
     Neg,
     Not,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TupleElement {
+    pub name: Option<String>,  
+    pub value: Expr,
 }
 
 // Simple helper for pretty printing tokens in errors
