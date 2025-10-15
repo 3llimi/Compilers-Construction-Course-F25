@@ -10,6 +10,12 @@ pub enum Token{
   LParen, RParen, LBrace, RBrace, LBracket, RBracket,
   Comma, Semicolon, Dot, In, Range, Arrow, Newline,
 
+  // keywords of types for operator is
+  TypeInt,     
+  TypeReal,    
+  TypeBool,    
+  TypeString,  
+
   Identifier(String),
   Integer(i64),
   Real(f64),
