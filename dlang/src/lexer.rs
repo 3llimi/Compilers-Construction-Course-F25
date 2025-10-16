@@ -156,28 +156,51 @@ impl Lexer {
     //Lexing Numbers
     fn lex_number(&mut self, first: char) -> Token {
         let mut s = first.to_string();
+        let mut is_real = false;
+        
         while let Some(c) = self.peek() {
             if c.is_ascii_digit() {
                 s.push(self.advance().unwrap());
-            } else if c == '.' {
-                if self.input.get(self.pos + 1) == Some(&'.') {
-                    break;
-                }
-                s.push(self.advance().unwrap());
-                while let Some(c2) = self.peek() {
-                    if c2.is_ascii_digit() {
-                        s.push(self.advance().unwrap());
+            } else if c == '.' && !is_real {
+                
+                if let Some(&next_ch) = self.input.get(self.pos + 1) {
+                    if next_ch.is_ascii_digit() {
+                        
+                        s.push(self.advance().unwrap()); 
+                        is_real = true;
+                        
+                        
+                        while let Some(c2) = self.peek() {
+                            if c2.is_ascii_digit() {
+                                s.push(self.advance().unwrap());
+                            } else {
+                                break;
+                            }
+                        }
+                    } else if next_ch == '.' {
+                        
+                        break;
                     } else {
+                        
                         break;
                     }
+                } else {
+                    
+                    break;
                 }
-                return Token::Real(s.parse().unwrap());
+                break; 
             } else {
                 break;
             }
         }
-        Token::Integer(s.parse().unwrap())
+        
+        if is_real {
+            Token::Real(s.parse().unwrap())
+        } else {
+            Token::Integer(s.parse().unwrap())
+        }
     }
+    
     //Lexing Identifiers/VarNames
     fn lex_identifier(&mut self, first: char) -> Token {
         let mut s = first.to_string();
@@ -211,6 +234,10 @@ impl Lexer {
             "xor" => Token::Xor,
             "not" => Token::Not,
             "in" => Token::In,
+            "int" => Token::TypeInt,
+            "real" => Token::TypeReal,
+            "bool" => Token::TypeBool,
+            "string" => Token::TypeString,
             _ => Token::Identifier(s),
         }
     }
