@@ -1,0 +1,3 @@
+print "before"
+return
+print "after"

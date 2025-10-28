@@ -1,11 +1,44 @@
 use std::env;
 use dlang::parser::Parser;
+use dlang::analyzer::{SemanticChecker, Optimizer};
 
 fn print_ast_for(input: &str) {
     println!("--- Input ---\n{}\n--- AST ---", input);
     let mut parser = Parser::new(input);
     match parser.parse_program() {
-        Ok(ast) => println!("{:#?}", ast),
+        Ok(mut ast) => {
+            println!("Original AST:\n{:#?}", ast);
+
+            // Run semantic checks
+            println!("\n--- Semantic Analysis ---");
+            let mut checker = SemanticChecker::new();
+            match checker.check(&ast) {
+                Ok(warnings) => {
+                    if warnings.is_empty() {
+                        println!("✓ No semantic errors found");
+                    } else {
+                        for warning in warnings {
+                            println!("Warning: {}", warning);
+                        }
+                    }
+                }
+                Err(e) => {
+                    println!("✗ Semantic errors found: {}", e);
+                }
+            }
+
+            // Run optimizations
+            println!("\n--- Running Optimizations ---");
+            let mut optimizer = Optimizer::new();
+            let modified = optimizer.optimize(&mut ast);
+
+            if modified {
+                println!("✓ AST was optimized");
+                println!("\nOptimized AST:\n{:#?}", ast);
+            } else {
+                println!("✓ No optimizations applied");
+            }
+        },
         Err(e) => println!("Parse error: {}", e),
     }
     println!("--------------\n");
