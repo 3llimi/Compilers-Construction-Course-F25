@@ -49,7 +49,7 @@ impl SemanticChecker {
 
     pub fn check(&mut self, program: &Program) -> AnalysisResult<Vec<String>> {
         self.errors.clear();
-
+    
         match program {
             Program::Stmts(stmts) => {
                 for stmt in stmts {
@@ -57,19 +57,27 @@ impl SemanticChecker {
                 }
             }
         }
-
+    
         if self.errors.is_empty() {
             Ok(vec![])
         } else {
-            Err(AnalysisError::Message(format!("Found {} semantic errors", self.errors.len())))
+            Err(AnalysisError::Message(self.errors.join("\n")))
         }
     }
+    
 
     fn check_stmt(&mut self, stmt: &Stmt) {
         match stmt {
             Stmt::VarDecl { name, init } => {
-                // Check: Declarations Before Usage
+                // Check: Re-declaration
+                if self.variables.contains_key(name) {
+                    self.errors.push(format!("Variable '{}' is already declared", name));
+                }
+                
+                // Check expression
                 self.check_expr(init);
+                
+                // Register variable
                 self.variables.insert(name.clone(), SymbolInfo {
                     name: name.clone(),
                     declared: true,
@@ -156,6 +164,20 @@ impl SemanticChecker {
                     self.errors.push(format!("Variable or function '{}' used before declaration", name));
                 }
             }
+            Expr::Binary { left, op: BinOp::Div, right } => {
+                if let Expr::Integer(0) = right.as_ref() {
+                    self.errors.push("Division by zero detected".to_string());
+                }
+                if let Expr::Real(val) = right.as_ref() {
+                    if *val == 0.0 {
+                        self.errors.push("Division by zero detected".to_string());
+                    }
+                }
+                
+                self.check_expr(left);
+                self.check_expr(right);
+            }
+            
             Expr::Binary { left, right, .. } => {
                 self.check_expr(left);
                 self.check_expr(right);
@@ -415,6 +437,25 @@ impl Optimizer {
                     (Expr::Real(a), BinOp::Mul, Expr::Real(b)) => {
                         Some(Expr::Real(a * b))
                     }
+
+                    
+                    (Expr::Ident(_), BinOp::Add, Expr::Integer(0)) => Some(*left.clone()),
+                    (Expr::Integer(0), BinOp::Add, Expr::Ident(_)) => Some(*right.clone()),
+                    (Expr::Ident(_), BinOp::Mul, Expr::Integer(1)) => Some(*left.clone()),
+                    (Expr::Integer(1), BinOp::Mul, Expr::Ident(_)) => Some(*right.clone()),
+                    (_, BinOp::Mul, Expr::Integer(0)) => Some(Expr::Integer(0)),
+                    (Expr::Integer(0), BinOp::Mul, _) => Some(Expr::Integer(0)),
+
+                    (Expr::Bool(true), BinOp::And, _) => Some(*right.clone()),
+                    (_, BinOp::And, Expr::Bool(true)) => Some(*left.clone()),
+                    (Expr::Bool(false), BinOp::And, _) => Some(Expr::Bool(false)),
+                    (_, BinOp::And, Expr::Bool(false)) => Some(Expr::Bool(false)),
+                    (Expr::Bool(true), BinOp::Or, _) => Some(Expr::Bool(true)),
+                    (_, BinOp::Or, Expr::Bool(true)) => Some(Expr::Bool(true)),
+                    (Expr::Bool(false), BinOp::Or, _) => Some(*right.clone()),
+                    (_, BinOp::Or, Expr::Bool(false)) => Some(*left.clone()),
+
+
                     (Expr::Real(a), BinOp::Div, Expr::Real(b)) => {
                         if *b != 0.0 {
                             Some(Expr::Real(a / b))
@@ -446,39 +487,47 @@ impl Optimizer {
     // OPTIMIZATION 2: Simplify conditionals (if true/false)
     fn simplify_conditionals(&mut self, program: &mut Program) -> bool {
         let mut changed = false;
-
+    
         match program {
             Program::Stmts(stmts) => {
-                for i in 0..stmts.len() {
+                let mut i = 0;
+                while i < stmts.len() {
                     if let Stmt::If { cond, then_branch, else_branch } = &stmts[i] {
                         if let Expr::Bool(true) = cond {
-                            // Condition is always true - replace if with then branch
                             let then_clone = then_branch.clone();
-                            *stmts = then_clone;
-                            return true; // Return immediately after replacing the entire program
+                            stmts.splice(i..=i, then_clone);  
+                            changed = true;
+                            continue;  
                         } else if let Expr::Bool(false) = cond {
-                            // Condition is always false - replace with else branch or remove
+                            
                             if let Some(else_branch) = else_branch {
                                 let else_clone = else_branch.clone();
-                                *stmts = else_clone;
-                                return true; // Return immediately after replacing the entire program
+                                stmts.splice(i..=i, else_clone);
+                                changed = true;
+                                continue;
                             } else {
-                                // Remove the if statement entirely
+                                
                                 stmts.remove(i);
                                 changed = true;
-                                // Don't break, continue processing remaining statements
+                                continue;
                             }
                         }
-                    } else if let Some(ref mut stmt) = stmts.get_mut(i) {
+                    }
+                    
+                
+                    if let Some(stmt) = stmts.get_mut(i) {
                         if self.simplify_stmt(stmt) {
                             changed = true;
                         }
                     }
+                    
+                    i += 1;
                 }
             }
         }
         changed
     }
+    
 
     fn simplify_stmt(&mut self, stmt: &mut Stmt) -> bool {
         match stmt {

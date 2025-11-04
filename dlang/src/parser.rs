@@ -284,40 +284,87 @@ impl Parser {
             Token::None => { self.advance(); Expr::None }
             Token::String(s) => { self.advance(); Expr::String(s) }
             Token::Identifier(s) => { self.advance(); Expr::Ident(s) }
-            Token::LParen => { self.advance(); let e = self.parse_expression()?; self.expect(&Token::RParen)?; e }
+            Token::LParen => { 
+                self.advance(); 
+                let e = self.parse_expression()?; 
+                self.expect(&Token::RParen)?; 
+                e 
+            }
             Token::LBracket => self.parse_array_literal()?,
             Token::LBrace => self.parse_tuple_literal()?,
             Token::Func => self.parse_func_literal()?,
             t => return err_from_token(format!("Unexpected token in expression: {:?}", t), &t),
         };
+    
         loop {
+            let is_literal = matches!(
+                expr, 
+                Expr::Integer(_) | Expr::Real(_) | Expr::Bool(_) | 
+                Expr::String(_) | Expr::None
+            );
+            
             match self.peek() {
                 Token::LParen => {
+                    if is_literal {
+                        return err_from_token(
+                            "Cannot call a literal value".to_string(),
+                            self.peek()
+                        );
+                    }
+                    
                     self.advance();
                     let mut args = Vec::new();
-                    if self.peek() != &Token::RParen { args.push(self.parse_expression()?); while self.match_token(&Token::Comma) { args.push(self.parse_expression()?); } }
+                    if self.peek() != &Token::RParen { 
+                        args.push(self.parse_expression()?); 
+                        while self.match_token(&Token::Comma) { 
+                            args.push(self.parse_expression()?); 
+                        } 
+                    }
                     self.expect(&Token::RParen)?;
                     expr = Expr::Call { callee: Box::new(expr), args };
                 }
                 Token::LBracket => {
+                    if is_literal {
+                        return err_from_token(
+                            "Cannot index a literal value".to_string(),
+                            self.peek()
+                        );
+                    }
+                    
                     self.advance();
                     let index = self.parse_expression()?;
                     self.expect(&Token::RBracket)?;
                     expr = Expr::Index { target: Box::new(expr), index: Box::new(index) };
                 }
                 Token::Dot => {
+                    if is_literal {
+                        return err_from_token(
+                            "Cannot access member of a literal value".to_string(),
+                            self.peek()
+                        );
+                    }
+                    
                     self.advance();
                     match self.advance() {
-                        Token::Identifier(field) => { expr = Expr::Member { target: Box::new(expr), field }; }
-                        Token::Integer(n) => { expr = Expr::Member { target: Box::new(expr), field: n.to_string() }; }
-                        t => return err_from_token(format!("Expected identifier or integer after '.', got {:?}", t), &t),
+                        Token::Identifier(field) => { 
+                            expr = Expr::Member { target: Box::new(expr), field }; 
+                        }
+                        Token::Integer(n) => { 
+                            expr = Expr::Member { target: Box::new(expr), field: n.to_string() }; 
+                        }
+                        t => return err_from_token(
+                            format!("Expected identifier or integer after '.', got {:?}", t), 
+                            &t
+                        ),
                     }
                 }
                 _ => break,
             }
         }
+        
         Ok(expr)
     }
+    
 
     fn parse_array_literal(&mut self) -> ParseResult<Expr> {
         self.expect(&Token::LBracket)?;

@@ -1,5 +1,9 @@
+var x := 10
+print x
 if true then
   print "hello"
 else
   print "goodbye"
 end
+var y := 20
+print y

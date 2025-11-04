@@ -12,20 +12,29 @@ fn print_ast_for(input: &str) {
             // Run semantic checks
             println!("\n--- Semantic Analysis ---");
             let mut checker = SemanticChecker::new();
-            match checker.check(&ast) {
-                Ok(warnings) => {
-                    if warnings.is_empty() {
-                        println!("✓ No semantic errors found");
-                    } else {
-                        for warning in warnings {
-                            println!("Warning: {}", warning);
-                        }
-                    }
-                }
+            
+   
+            let errors = match checker.check(&ast) {
+                Ok(errs) => errs,
                 Err(e) => {
-                    println!("✗ Semantic errors found: {}", e);
+                    println!("-X- Semantic analysis failed: {}", e);
+                    println!("\n!!!  Skipping optimizations due to semantic errors");
+                    println!("--------------\n");
+                    return;  
                 }
+            };
+
+            if !errors.is_empty() {
+                println!("-X- Found {} semantic error(s):", errors.len());
+                for (i, error) in errors.iter().enumerate() {
+                    println!("  {}. {}", i + 1, error);
+                }
+                println!("\n!!!  Skipping optimizations due to semantic errors");
+                println!("--------------\n");
+                return;  
             }
+
+            println!("✓ No semantic errors found");
 
             // Run optimizations
             println!("\n--- Running Optimizations ---");
@@ -33,16 +42,17 @@ fn print_ast_for(input: &str) {
             let modified = optimizer.optimize(&mut ast);
 
             if modified {
-                println!("✓ AST was optimized");
+                println!("+ AST was optimized");
                 println!("\nOptimized AST:\n{:#?}", ast);
             } else {
-                println!("✓ No optimizations applied");
+                println!("+ No optimizations applied");
             }
         },
         Err(e) => println!("Parse error: {}", e),
     }
     println!("--------------\n");
 }
+
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -87,6 +97,9 @@ fn main() {
         print f(3, 4)
         "#,
         "((t.1).2).3",
+        "1.2.3",
+        "1.2",
+        "10/0",
         "@ # $", // error case
     ];
 
