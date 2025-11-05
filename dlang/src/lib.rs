@@ -4,6 +4,13 @@ pub mod ast;
 pub mod parser;
 pub mod analyzer;
 
+
+pub use parser::Parser;
+pub use analyzer::{SemanticChecker, Optimizer, AnalysisError, AnalysisResult};
+
+pub use ast::{Program, Stmt, Expr, BinOp, UnOp};
+
+
 #[cfg(test)]
 mod parser_tests;
 

@@ -375,7 +375,7 @@ impl Optimizer {
             | Expr::Ident(_) | Expr::Array(_) | Expr::Tuple(_) => None,
 
             Expr::Binary { left, op, right } => {
-                // Simplify sub-expressions first
+                // sub-expressions first
                 if let Some(new_left) = self.simplify_expr(left) {
                     *left = Box::new(new_left);
                 }
@@ -383,7 +383,7 @@ impl Optimizer {
                     *right = Box::new(new_right);
                 }
 
-                // Now evaluate the binary expression if both sides are constants
+                // evaluate expr (if both sides constants)
                 match (left.as_ref(), op.clone(), right.as_ref()) {
                     (Expr::Integer(a), BinOp::Add, Expr::Integer(b)) => {
                         Some(Expr::Integer(a + b))
