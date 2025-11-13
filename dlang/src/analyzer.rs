@@ -24,13 +24,13 @@ impl std::fmt::Display for AnalysisError {
 
 pub type AnalysisResult<T> = Result<T, AnalysisError>;
 
-// ============================================================================
-// PART 1: SEMANTIC CHECKS (Don't modify AST)
-// ============================================================================
+// ====
+// part 1: semantic checcks (without modifying AST)
+// ====
 
 pub struct SemanticChecker {
-    variables: HashMap<String, SymbolInfo>,
-    functions: HashMap<String, SymbolInfo>,
+    scope_stack: Vec<HashMap<String, SymbolInfo>>,
+    array_sizes_stack: Vec<HashMap<String, usize>>,  
     inside_function: bool,
     inside_loop: bool,
     errors: Vec<String>,
@@ -39,12 +39,61 @@ pub struct SemanticChecker {
 impl SemanticChecker {
     pub fn new() -> Self {
         Self {
-            variables: HashMap::new(),
-            functions: HashMap::new(),
+            scope_stack: vec![HashMap::new()],
+            array_sizes_stack: vec![HashMap::new()],
             inside_function: false,
             inside_loop: false,
             errors: Vec::new(),
         }
+    }
+    
+    // entrance to the new scope
+    fn push_scope(&mut self) {
+        self.scope_stack.push(HashMap::new());
+        self.array_sizes_stack.push(HashMap::new());
+    }
+    
+    // exit from the scope
+    fn pop_scope(&mut self) {
+        if self.scope_stack.len() > 1 {
+            self.scope_stack.pop();
+            self.array_sizes_stack.pop();
+        }
+    }
+    
+    
+    fn is_declared(&self, name: &str) -> bool {
+        for scope in self.scope_stack.iter().rev() {
+            if scope.contains_key(name) {
+                return true;
+            }
+        }
+        false
+    }
+    
+    fn declare_var(&mut self, name: String, info: SymbolInfo) -> bool {
+        let current_scope = self.scope_stack.last_mut().unwrap();
+        if current_scope.contains_key(&name) {
+            return false;  // already declared in this scope
+        }
+        current_scope.insert(name, info);
+        true
+    }
+    
+    // arr size in curr scope
+    fn record_array_size(&mut self, name: String, size: usize) {
+        let current_sizes = self.array_sizes_stack.last_mut().unwrap();
+        current_sizes.insert(name, size);
+    }
+    
+    // get the size of the arr
+    fn get_array_size(&self, name: &str) -> Option<usize> {
+        for sizes in self.array_sizes_stack.iter().rev() {
+            if let Some(&size) = sizes.get(name) {
+                return Some(size);
+            }
+        }
+        None
     }
 
     pub fn check(&mut self, program: &Program) -> AnalysisResult<Vec<String>> {
@@ -69,36 +118,33 @@ impl SemanticChecker {
     fn check_stmt(&mut self, stmt: &Stmt) {
         match stmt {
             Stmt::VarDecl { name, init } => {
-                // Check: Re-declaration
-                if self.variables.contains_key(name) {
-                    self.errors.push(format!("Variable '{}' is already declared", name));
-                }
-                
-                // Check expression
+                // Check expression first
                 self.check_expr(init);
                 
-                // Register variable
-                self.variables.insert(name.clone(), SymbolInfo {
+                // Check: Re-declaration in curr scope
+                if !self.declare_var(name.clone(), SymbolInfo {
                     name: name.clone(),
                     declared: true,
                     used: false,
                     is_function: false,
-                });
+                }) {
+                    self.errors.push(format!("Variable '{}' is already declared", name));
+                }
+                
+                if let Expr::Array(elems) = init {
+                    self.record_array_size(name.clone(), elems.len());
+                }
             }
+            
+            
+            
             Stmt::Assign { target, value } => {
                 self.check_expr(target);
                 self.check_expr(value);
-
-                // Check if target is a valid identifier
-                if let Expr::Ident(name) = target {
-                    if !self.variables.contains_key(name) && !self.functions.contains_key(name) {
-                        self.errors.push(format!("Variable '{}' used before declaration", name));
-                    }
-                }
-
-                // Check array access bounds
+                
                 self.check_array_bounds(target);
             }
+            
             Stmt::Print { args } => {
                 for arg in args {
                     self.check_expr(arg);
@@ -106,49 +152,77 @@ impl SemanticChecker {
             }
             Stmt::If { cond, then_branch, else_branch } => {
                 self.check_expr(cond);
-                let prev_inside_loop = self.inside_loop;
+                
+                // new scope for then_branch
+                self.push_scope();
                 for stmt in then_branch {
                     self.check_stmt(stmt);
                 }
+                self.pop_scope();
+                
+                // new scope for else_branch 
                 if let Some(else_branch) = else_branch {
+                    self.push_scope();
                     for stmt in else_branch {
                         self.check_stmt(stmt);
                     }
+                    self.pop_scope();
                 }
-                self.inside_loop = prev_inside_loop;
             }
+            
             Stmt::While { cond, body } => {
                 self.check_expr(cond);
+                
                 let prev_inside_loop = self.inside_loop;
                 self.inside_loop = true;
+                
+                self.push_scope();
+                
                 for stmt in body {
                     self.check_stmt(stmt);
                 }
+                
+                self.pop_scope();
+                
                 self.inside_loop = prev_inside_loop;
             }
+            
+            
             Stmt::For { var, iterable, body } => {
                 self.check_expr(iterable);
+                
                 let prev_inside_loop = self.inside_loop;
                 self.inside_loop = true;
-                // Add loop variable to scope
-                self.variables.insert(var.clone(), SymbolInfo {
+                
+                self.push_scope();
+                
+                self.declare_var(var.clone(), SymbolInfo {
                     name: var.clone(),
                     declared: true,
                     used: false,
                     is_function: false,
                 });
+                
                 for stmt in body {
                     self.check_stmt(stmt);
                 }
+                
+                self.pop_scope();
+                
                 self.inside_loop = prev_inside_loop;
             }
+            
             Stmt::Return(_) => {
                 // Check: Correct Keyword Usage - return should be inside function
                 if !self.inside_function {
                     self.errors.push("Return statement outside of function".to_string());
                 }
             }
-            Stmt::Exit => {}
+            Stmt::Exit => {
+                if !self.inside_loop {
+                    self.errors.push("Exit statement outside of loop".to_string());
+                }
+            }
             Stmt::Expr(expr) => {
                 self.check_expr(expr);
             }
@@ -160,10 +234,11 @@ impl SemanticChecker {
             Expr::Integer(_) | Expr::Real(_) | Expr::Bool(_) | Expr::String(_) | Expr::None => {}
             Expr::Ident(name) => {
                 // Check: Declarations Before Usage
-                if !self.variables.contains_key(name) && !self.functions.contains_key(name) {
+                if !self.is_declared(name) {
                     self.errors.push(format!("Variable or function '{}' used before declaration", name));
                 }
             }
+            
             Expr::Binary { left, op: BinOp::Div, right } => {
                 if let Expr::Integer(0) = right.as_ref() {
                     self.errors.push("Division by zero detected".to_string());
@@ -216,44 +291,77 @@ impl SemanticChecker {
             Expr::IsType { expr, .. } => {
                 self.check_expr(expr);
             }
-            Expr::Func { params, body: _ } => {
-                // Mark as inside function
+            Expr::Func { params, body } => {
                 let prev_inside_function = self.inside_function;
                 self.inside_function = true;
-
-                // Add parameters to scope
+                
+                self.push_scope();
+                
                 for param in params {
-                    self.variables.insert(param.clone(), SymbolInfo {
-                        name: param.clone(),
-                        declared: true,
-                        used: false,
-                        is_function: false,
+                    self.declare_var(param.clone(), SymbolInfo {
+                        name: param.clone(),        
+                        declared: true,             
+                        used: false,                
+                        is_function: false,         
                     });
                 }
+                
+                match body {
+                    FuncBody::Expr(expr) => {
+                        self.check_expr(expr);
+                    }
+                    FuncBody::Block(stmts) => {
+                        for stmt in stmts {
+                            self.check_stmt(stmt);
+                        }
+                    }
+                }
 
-                // Check body will be done later in optimizer
+                self.pop_scope();  
                 self.inside_function = prev_inside_function;
+            
             }
         }
     }
 
     fn check_array_bounds(&mut self, expr: &Expr) {
         if let Expr::Index { target, index } = expr {
-            // Basic constant array bound checking
-            if let Expr::Array(elems) = target.as_ref() {
-                if let Expr::Integer(idx) = index.as_ref() {
-                    if *idx < 0 || *idx >= elems.len() as i64 {
-                        self.errors.push(format!("Array index {} out of bounds (array size: {})", idx, elems.len()));
+            if let Expr::Integer(idx) = index.as_ref() {
+                match target.as_ref() {
+                    Expr::Array(elems) => {
+                        // Индексация с 1 по len (включительно)
+                        if *idx < 1 || *idx > elems.len() as i64 {
+                            self.errors.push(format!(
+                                "Array index {} out of bounds (valid range: 1..{})", 
+                                idx, elems.len()
+                            ));
+                        }
                     }
+                    
+                    Expr::Ident(name) => {
+                        if let Some(size) = self.get_array_size(name) {
+                            if *idx < 1 || *idx > size as i64 {
+                                self.errors.push(format!(
+                                    "Array index {} out of bounds (valid range: 1..{})", 
+                                    idx, size
+                                ));
+                            }
+                        }
+                    }
+                    
+                    _ => {}
                 }
             }
         }
     }
+    
+    
+    
 }
 
-// ============================================================================
-// PART 2: OPTIMIZER (Modifies AST)
-// ============================================================================
+// ===
+// part 2: optimizer (modifies AST)
+// ===
 
 pub struct Optimizer {
     modified: bool,
