@@ -1,6 +1,7 @@
 use std::env;
 use dlang::parser::Parser;
 use dlang::analyzer::{SemanticChecker, Optimizer};
+use dlang::interpreter::Interpreter;
 
 fn print_ast_for(input: &str) {
     println!("--- Input ---\n{}\n--- AST ---", input);
@@ -12,15 +13,15 @@ fn print_ast_for(input: &str) {
             // Run semantic checks
             println!("\n--- Semantic Analysis ---");
             let mut checker = SemanticChecker::new();
-            
-   
+
+
             let errors = match checker.check(&ast) {
                 Ok(errs) => errs,
                 Err(e) => {
                     println!("-X- Semantic analysis failed: {}", e);
                     println!("\n!!!  Skipping optimizations due to semantic errors");
                     println!("--------------\n");
-                    return;  
+                    return;
                 }
             };
 
@@ -31,7 +32,7 @@ fn print_ast_for(input: &str) {
                 }
                 println!("\n!!!  Skipping optimizations due to semantic errors");
                 println!("--------------\n");
-                return;  
+                return;
             }
 
             println!("+ No semantic errors found");
@@ -46,6 +47,18 @@ fn print_ast_for(input: &str) {
                 println!("\nOptimized AST:\n{:#?}", ast);
             } else {
                 println!("+ No optimizations applied");
+            }
+
+            // Run interpreter
+            println!("\n--- Interpreter Execution ---");
+            let mut interpreter = Interpreter::new();
+            match interpreter.interpret(&ast) {
+                Ok(()) => {
+                    println!("+ Program executed successfully");
+                }
+                Err(e) => {
+                    println!("-X- Runtime error: {}", e);
+                }
             }
         },
         Err(e) => println!("Parse error: {}", e),
@@ -74,7 +87,7 @@ fn main() {
         "arr[1] := {x:=2,y:=3}.y",
         "for i in [1,2,3] loop print i end",
         // range not yet implemented in parser as an operator; keep arrays demo
-        
+
         r#"
         var outer := func(x) is
             var inner := func(y) => y + 1
@@ -161,26 +174,26 @@ fn main() {
         end
         "#,
         r#"
-        var x := 10       
+        var x := 10
         while true loop
-            var x := 20   
+            var x := 20
         end
         var x := 30
         print (x)
         "#,
         r#"
-        var f := func(x) => y + 1  
+        var f := func(x) => y + 1
         print f(5)
         "#,
-        
-        
+
+
         r#"
         var f := func(x) is
             var y := 10
             return x + y
         end
 
-        print y  
+        print y
 
         "#,
         r#"
@@ -188,26 +201,22 @@ fn main() {
         if true then
             var x := 10  // это разрешено (shadowing)
         end
-        print x  
+        print x
 
         "#,
 
         r#"
         var arr := [10, 20, 30]
-        print arr[1]  
-        print arr[0] 
-        print arr[3]  
-        print arr[4]  
+        print arr[1]
+        print arr[0]
+        print arr[3]
+        print arr[4]
         "#,
         r#"
-        var f := func(x, y) => x + y + z 
+        var f := func(x, y) => x + y + z
         "#,
         "@ # $", // error case
     ];
 
     for s in samples { print_ast_for(s); }
 }
-
-
-
-

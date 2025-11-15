@@ -3,10 +3,12 @@ pub mod lexer;
 pub mod ast;
 pub mod parser;
 pub mod analyzer;
+pub mod interpreter;
 
 
 pub use parser::Parser;
 pub use analyzer::{SemanticChecker, Optimizer, AnalysisError, AnalysisResult};
+pub use interpreter::{Interpreter, InterpreterError, InterpreterResult};
 
 pub use ast::{Program, Stmt, Expr, BinOp, UnOp};
 

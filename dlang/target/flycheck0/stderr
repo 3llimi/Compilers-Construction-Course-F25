@@ -1,0 +1,34 @@
+   0.054672300s  INFO prepare_target{force=false package_id=dlang v0.1.0 (C:\Users\3llim\OneDrive\Documents\GitHub\Compilers-Construction-Course-F25\dlang) target="analyzer_tests"}: cargo::core::compiler::fingerprint: fingerprint error for dlang v0.1.0 (C:\Users\3llim\OneDrive\Documents\GitHub\Compilers-Construction-Course-F25\dlang)/Check { test: true }/TargetInner { kind: "test", name: "analyzer_tests", benched: false, ..: with_path("C:\\Users\\3llim\\OneDrive\\Documents\\GitHub\\Compilers-Construction-Course-F25\\dlang\\tests\\analyzer_tests.rs", Edition2024) }
+   0.054879300s  INFO prepare_target{force=false package_id=dlang v0.1.0 (C:\Users\3llim\OneDrive\Documents\GitHub\Compilers-Construction-Course-F25\dlang) target="analyzer_tests"}: cargo::core::compiler::fingerprint:     err: failed to read `C:\Users\3llim\OneDrive\Documents\GitHub\Compilers-Construction-Course-F25\dlang\target\debug\.fingerprint\dlang-c5ff0952a8726bb3\test-integration-test-analyzer_tests`
+
+Caused by:
+    The system cannot find the file specified. (os error 2)
+
+Stack backtrace:
+   0: std::backtrace::Backtrace::create
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library\std\src\..\..\backtrace\src\backtrace/win64.rs:85:14
+   1: std::backtrace::Backtrace::capture
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library\std\src/backtrace.rs:296:9
+   2: <std::io::error::Error as anyhow::context::ext::StdError>::ext_context::<alloc::string::String>
+   3: cargo_util::paths::read
+   4: cargo::core::compiler::fingerprint::prepare_target
+   5: cargo::core::compiler::compile
+   6: <cargo::core::compiler::build_runner::BuildRunner>::compile
+   7: cargo::ops::cargo_compile::compile_ws
+   8: cargo::ops::cargo_compile::compile_with_exec
+   9: cargo::ops::cargo_compile::compile
+  10: cargo::commands::check::exec
+  11: <cargo::cli::Exec>::exec
+  12: cargo::cli::main
+  13: cargo::main
+  14: std::sys::backtrace::__rust_begin_short_backtrace::<fn(), ()>
+  15: std::rt::lang_start::<()>::{closure#0}
+  16: std::rt::lang_start_internal
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library\core\src\ops/function.rs:284:21
+  17: main
+  18: __tmainCRTStartup
+  19: mainCRTStartup
+  20: <unknown>
+  21: <unknown>
+    Checking dlang v0.1.0 (C:\Users\3llim\OneDrive\Documents\GitHub\Compilers-Construction-Course-F25\dlang)
+error: could not compile `dlang` (test "analyzer_tests") due to 1 previous error
