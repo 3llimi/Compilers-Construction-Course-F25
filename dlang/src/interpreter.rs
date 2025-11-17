@@ -1,5 +1,8 @@
 use crate::ast::*;
 use std::collections::HashMap;
+use std::rc::Rc;
+use std::cell::RefCell;
+
 
 // Runtime value representation
 #[derive(Debug, Clone)]
@@ -35,10 +38,11 @@ impl PartialEq for Value {
 }
 
 // Environment for variable storage with scoping
+
 #[derive(Debug, Clone)]
 pub struct Environment {
     variables: HashMap<String, Value>,
-    parent: Option<Box<Environment>>,
+    parent: Option<Rc<RefCell<Environment>>>,  
 }
 
 impl Environment {
@@ -49,10 +53,10 @@ impl Environment {
         }
     }
 
-    pub fn new_with_parent(parent: Environment) -> Self {
+    pub fn new_with_parent(parent: Rc<RefCell<Environment>>) -> Self {
         Self {
             variables: HashMap::new(),
-            parent: Some(Box::new(parent)),
+            parent: Some(parent),
         }
     }
 
@@ -64,7 +68,7 @@ impl Environment {
         if let Some(value) = self.variables.get(name) {
             Some(value.clone())
         } else if let Some(ref parent) = self.parent {
-            parent.get(name)
+            parent.borrow().get(name)  
         } else {
             None
         }
@@ -74,8 +78,8 @@ impl Environment {
         if self.variables.contains_key(name) {
             self.variables.insert(name.to_string(), value);
             true
-        } else if let Some(ref mut parent) = self.parent {
-            parent.assign(name, value)
+        } else if let Some(ref parent) = self.parent {
+            parent.borrow_mut().assign(name, value)  
         } else {
             false
         }
@@ -116,7 +120,7 @@ pub type InterpreterResult<T> = Result<T, InterpreterError>;
 
 // Main interpreter
 pub struct Interpreter {
-    environment: Environment,
+    environment: Rc<RefCell<Environment>>,  
     inside_loop: bool,
     inside_function: bool,
 }
@@ -124,7 +128,7 @@ pub struct Interpreter {
 impl Interpreter {
     pub fn new() -> Self {
         Self {
-            environment: Environment::new(),
+            environment: Rc::new(RefCell::new(Environment::new())),  
             inside_loop: false,
             inside_function: false,
         }
@@ -145,7 +149,7 @@ impl Interpreter {
         match stmt {
             Stmt::VarDecl { name, init } => {
                 let value = self.evaluate_expr(init)?;
-                self.environment.define(name.clone(), value);
+                self.environment.borrow_mut().define(name.clone(), value);  
                 Ok(())
             }
 
@@ -213,16 +217,20 @@ impl Interpreter {
             Stmt::For { var, iterable, body } => {
                 let prev_inside_loop = self.inside_loop;
                 self.inside_loop = true;
-
+            
                 // Handle infinite loop (when iterable is None)
                 if matches!(iterable, Expr::None) {
                     loop {
-                        let env_clone = self.environment.clone();
-                        let old_env = std::mem::replace(&mut self.environment, Environment::new_with_parent(env_clone));
+                        let new_env = Environment::new_with_parent(Rc::clone(&self.environment));
+                        let old_env = std::mem::replace(
+                            &mut self.environment,
+                            Rc::new(RefCell::new(new_env))
+                        );
+                        
                         if var != "_" {
-                            self.environment.define(var.clone(), Value::None);
+                            self.environment.borrow_mut().define(var.clone(), Value::None);
                         }
-
+            
                         match self.execute_block(body) {
                             Ok(()) => {}
                             Err(InterpreterError::Exit) => {
@@ -241,15 +249,14 @@ impl Interpreter {
                                 return Err(e);
                             }
                         }
-
+            
                         self.environment = old_env;
                     }
                 }
-
+            
                 // Evaluate iterable - if it's a Range, it becomes an Array
                 let iterable_val = match iterable {
                     Expr::Range(low, high) => {
-                        // Handle range directly
                         let low_val = self.evaluate_expr(low)?;
                         let high_val = self.evaluate_expr(high)?;
                         self.evaluate_range(&low_val, &high_val)?
@@ -257,13 +264,16 @@ impl Interpreter {
                     _ => self.evaluate_expr(iterable)?,
                 };
                 let items = self.iterable_to_vec(&iterable_val)?;
-
+            
                 for item in items {
-                    // Create new scope for loop variable
-                    let env_clone = self.environment.clone();
-                    let old_env = std::mem::replace(&mut self.environment, Environment::new_with_parent(env_clone));
-                    self.environment.define(var.clone(), item);
-
+                    let new_env = Environment::new_with_parent(Rc::clone(&self.environment));
+                    let old_env = std::mem::replace(
+                        &mut self.environment,
+                        Rc::new(RefCell::new(new_env))
+                    );
+                    
+                    self.environment.borrow_mut().define(var.clone(), item);
+            
                     match self.execute_block(body) {
                         Ok(()) => {}
                         Err(InterpreterError::Exit) => {
@@ -282,14 +292,14 @@ impl Interpreter {
                             return Err(e);
                         }
                     }
-
-                    // Restore environment (but keep loop var in scope for next iteration)
+            
                     self.environment = old_env;
                 }
-
+            
                 self.inside_loop = prev_inside_loop;
                 Ok(())
             }
+            
 
             Stmt::Return(expr) => {
                 if !self.inside_function {
@@ -318,14 +328,17 @@ impl Interpreter {
     }
 
     fn execute_block(&mut self, stmts: &[Stmt]) -> InterpreterResult<()> {
-        let env_clone = self.environment.clone();
-        let old_env = std::mem::replace(&mut self.environment, Environment::new_with_parent(env_clone));
+        // Создать новый scope
+        let new_env = Environment::new_with_parent(Rc::clone(&self.environment));
+        let old_env = std::mem::replace(
+            &mut self.environment,
+            Rc::new(RefCell::new(new_env))
+        );
 
         for stmt in stmts {
             match self.execute_stmt(stmt) {
                 Ok(()) => {}
                 Err(e @ InterpreterError::Return(_)) | Err(e @ InterpreterError::Exit) => {
-                    // Propagate return/exit - restore env first
                     self.environment = old_env;
                     return Err(e);
                 }
@@ -349,9 +362,10 @@ impl Interpreter {
             Expr::None => Ok(Value::None),
 
             Expr::Ident(name) => {
-                self.environment.get(name)
+                self.environment.borrow().get(name)  
                     .ok_or_else(|| InterpreterError::UndefinedVariable(name.clone()))
             }
+            
 
             Expr::Binary { left, op, right } => {
                 let left_val = self.evaluate_expr(left)?;
@@ -420,11 +434,10 @@ impl Interpreter {
             }
 
             Expr::Func { params, body } => {
-                // Create a closure with current environment
                 Ok(Value::Function {
                     params: params.clone(),
                     body: body.clone(),
-                    closure: self.environment.clone(),
+                    closure: (*self.environment.borrow()).clone(),  
                 })
             }
         }
@@ -709,14 +722,18 @@ impl Interpreter {
                     )));
                 }
 
-                // Create new environment with closure
-                let old_env = std::mem::replace(&mut self.environment, closure.clone());
+                // Создать новый environment с closure
+                let new_env = Rc::new(RefCell::new(Environment::new_with_parent(
+                    Rc::new(RefCell::new(closure.clone()))
+                )));
+                
+                let old_env = std::mem::replace(&mut self.environment, new_env);
                 let prev_inside_function = self.inside_function;
                 self.inside_function = true;
 
                 // Bind parameters
                 for (param, arg) in params.iter().zip(args.iter()) {
-                    self.environment.define(param.clone(), arg.clone());
+                    self.environment.borrow_mut().define(param.clone(), arg.clone());
                 }
 
                 // Execute function body
@@ -748,7 +765,6 @@ impl Interpreter {
                     }
                 };
 
-                // Restore environment and function state
                 self.environment = old_env;
                 self.inside_function = prev_inside_function;
                 result
@@ -760,69 +776,70 @@ impl Interpreter {
     fn assign_to_target(&mut self, target: &Expr, value: Value) -> InterpreterResult<()> {
         match target {
             Expr::Ident(name) => {
-                if !self.environment.assign(name, value) {
+                if !self.environment.borrow_mut().assign(name, value) {
                     return Err(InterpreterError::UndefinedVariable(name.clone()));
                 }
                 Ok(())
             }
+    
             Expr::Index { target: arr_expr, index } => {
                 let arr_val = self.evaluate_expr(arr_expr)?;
                 let index_val = self.evaluate_expr(index)?;
-
+    
                 match arr_val {
                     Value::Array(mut arr) => {
                         let index_num = match index_val {
                             Value::Integer(n) => n,
                             _ => return Err(InterpreterError::TypeError("Array index must be an integer".to_string())),
                         };
-
+    
                         if index_num < 1 || index_num > arr.len() as i64 {
                             return Err(InterpreterError::IndexOutOfBounds {
                                 index: index_num,
                                 size: arr.len(),
                             });
                         }
-
+    
                         arr[(index_num - 1) as usize] = value;
-
-                        // Update the array in environment
+    
                         if let Expr::Ident(name) = arr_expr.as_ref() {
-                            self.environment.define(name.clone(), Value::Array(arr));
+                            self.environment.borrow_mut().define(name.clone(), Value::Array(arr));
                         } else {
                             return Err(InterpreterError::RuntimeError("Cannot assign to non-variable array".to_string()));
                         }
                         Ok(())
                     }
+                    
                     Value::Tuple(mut tuple) => {
                         let key = match index_val {
                             Value::Integer(n) => n.to_string(),
                             Value::String(s) => s,
                             _ => return Err(InterpreterError::TypeError("Tuple index must be integer or string".to_string())),
                         };
-
+    
                         tuple.insert(key.clone(), value);
-
-                        // Update the tuple in environment
+    
                         if let Expr::Ident(name) = arr_expr.as_ref() {
-                            self.environment.define(name.clone(), Value::Tuple(tuple));
+                            self.environment.borrow_mut().define(name.clone(), Value::Tuple(tuple));
                         } else {
                             return Err(InterpreterError::RuntimeError("Cannot assign to non-variable tuple".to_string()));
                         }
                         Ok(())
                     }
+                    
                     _ => Err(InterpreterError::TypeError("Cannot assign to non-array/non-tuple value".to_string())),
                 }
             }
+    
             Expr::Member { target, field } => {
                 let tuple_val = self.evaluate_expr(target)?;
-
+    
                 match tuple_val {
                     Value::Tuple(mut tuple) => {
                         tuple.insert(field.clone(), value);
-
-                        // Update the tuple in environment
+    
                         if let Expr::Ident(name) = target.as_ref() {
-                            self.environment.define(name.clone(), Value::Tuple(tuple));
+                            self.environment.borrow_mut().define(name.clone(), Value::Tuple(tuple));
                         } else {
                             return Err(InterpreterError::RuntimeError("Cannot assign to non-variable tuple".to_string()));
                         }
@@ -831,7 +848,9 @@ impl Interpreter {
                     _ => Err(InterpreterError::TypeError("Cannot assign to member of non-tuple value".to_string())),
                 }
             }
+    
             _ => Err(InterpreterError::RuntimeError("Invalid assignment target".to_string())),
         }
     }
+    
 }

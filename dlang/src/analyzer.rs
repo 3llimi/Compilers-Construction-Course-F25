@@ -218,11 +218,7 @@ impl SemanticChecker {
                     self.errors.push("Return statement outside of function".to_string());
                 }
             }
-            Stmt::Exit => {
-                if !self.inside_loop {
-                    self.errors.push("Exit statement outside of loop".to_string());
-                }
-            }
+            Stmt::Exit => {}
             Stmt::Expr(expr) => {
                 self.check_expr(expr);
             }
@@ -365,18 +361,25 @@ impl SemanticChecker {
 
 pub struct Optimizer {
     modified: bool,
+    constants: HashMap<String, Expr>,
 }
 
 impl Optimizer {
     pub fn new() -> Self {
-        Self { modified: false }
+        Self {
+            modified: false,
+            constants: HashMap::new(),
+        }
     }
 
     pub fn optimize(&mut self, program: &mut Program) -> bool {
         self.modified = false;
         loop {
             let mut changed = false;
+            self.constants.clear();
             // Run all optimizations
+            changed |= self.collect_constants(program);      
+            changed |= self.propagate_constants(program);    
             changed |= self.fold_constants(program);
             changed |= self.simplify_conditionals(program);
             changed |= self.remove_unreachable_code(program);
@@ -388,6 +391,114 @@ impl Optimizer {
             self.modified = true;
         }
         self.modified
+    }
+
+   
+    fn collect_constants(&mut self, program: &Program) -> bool {
+        match program {
+            Program::Stmts(stmts) => {
+                for stmt in stmts {
+                    if let Stmt::VarDecl { name, init } = stmt {
+                        // Если инициализатор — константа
+                        if self.is_constant_expr(init) {
+                            self.constants.insert(name.clone(), init.clone());
+                        }
+                    }
+                }
+            }
+        }
+        false  // Не меняет AST, только собирает информацию
+    }
+    
+  
+    fn propagate_constants(&mut self, program: &mut Program) -> bool {
+        let mut changed = false;
+        
+        match program {
+            Program::Stmts(stmts) => {
+                for stmt in stmts.iter_mut() {
+                    if self.propagate_in_stmt(stmt) {
+                        changed = true;
+                    }
+                }
+            }
+        }
+        
+        changed
+    }
+    
+    fn propagate_in_stmt(&mut self, stmt: &mut Stmt) -> bool {
+        let mut changed = false;
+        
+        match stmt {
+            Stmt::If { cond, then_branch, else_branch } => {
+                if self.propagate_in_expr(cond) {
+                    changed = true;
+                }
+                for s in then_branch {
+                    if self.propagate_in_stmt(s) {
+                        changed = true;
+                    }
+                }
+                if let Some(else_branch) = else_branch {
+                    for s in else_branch {
+                        if self.propagate_in_stmt(s) {
+                            changed = true;
+                        }
+                    }
+                }
+            }
+            Stmt::Print { args } => {
+                for arg in args {
+                    if self.propagate_in_expr(arg) {
+                        changed = true;
+                    }
+                }
+            }
+            Stmt::Assign { value, .. } => {
+                if self.propagate_in_expr(value) {
+                    changed = true;
+                }
+            }
+            _ => {}
+        }
+        
+        changed
+    }
+    
+    fn propagate_in_expr(&mut self, expr: &mut Expr) -> bool {
+        match expr {
+            Expr::Ident(name) => {
+                // Если это известная константа - заменить
+                if let Some(const_expr) = self.constants.get(name) {
+                    *expr = const_expr.clone();
+                    return true;
+                }
+            }
+            Expr::Binary { left, right, .. } => {
+                let mut changed = false;
+                if self.propagate_in_expr(left) {
+                    changed = true;
+                }
+                if self.propagate_in_expr(right) {
+                    changed = true;
+                }
+                return changed;
+            }
+            Expr::Unary { expr: inner, .. } => {
+                return self.propagate_in_expr(inner);
+            }
+            _ => {}
+        }
+        false
+    }
+    
+    
+    fn is_constant_expr(&self, expr: &Expr) -> bool {
+        matches!(
+            expr,
+            Expr::Integer(_) | Expr::Real(_) | Expr::Bool(_) | Expr::String(_) | Expr::None
+        )
     }
 
     // OPTIMIZATION 1: Constant Folding
@@ -595,34 +706,41 @@ impl Optimizer {
     // OPTIMIZATION 2: Simplify conditionals (if true/false)
     fn simplify_conditionals(&mut self, program: &mut Program) -> bool {
         let mut changed = false;
-    
+        
         match program {
             Program::Stmts(stmts) => {
                 let mut i = 0;
                 while i < stmts.len() {
                     if let Stmt::If { cond, then_branch, else_branch } = &stmts[i] {
+                        
+                        let contains_vardecl = |stmts: &[Stmt]| {
+                            stmts.iter().any(|s| matches!(s, Stmt::VarDecl { .. }))
+                        };
+                        
+                        if contains_vardecl(then_branch) || 
+                           else_branch.as_ref().map(|b| contains_vardecl(b)).unwrap_or(false) {
+                            i += 1;
+                            continue;  // Пропустить оптимизацию
+                        }
+                        
+                        // Безопасная оптимизация
                         if let Expr::Bool(true) = cond {
                             let then_clone = then_branch.clone();
-                            stmts.splice(i..=i, then_clone);  
+                            stmts.splice(i..=i, then_clone);
                             changed = true;
-                            continue;  
+                            continue;
                         } else if let Expr::Bool(false) = cond {
-                            
                             if let Some(else_branch) = else_branch {
                                 let else_clone = else_branch.clone();
                                 stmts.splice(i..=i, else_clone);
-                                changed = true;
-                                continue;
                             } else {
-                                
                                 stmts.remove(i);
-                                changed = true;
-                                continue;
                             }
+                            changed = true;
+                            continue;
                         }
                     }
                     
-                
                     if let Some(stmt) = stmts.get_mut(i) {
                         if self.simplify_stmt(stmt) {
                             changed = true;
@@ -635,6 +753,7 @@ impl Optimizer {
         }
         changed
     }
+    
     
 
     fn simplify_stmt(&mut self, stmt: &mut Stmt) -> bool {
