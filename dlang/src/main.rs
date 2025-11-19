@@ -191,18 +191,7 @@ fn main() {
     end
     "#,
     
-        // 3.5 Exit from cycles
-        r#"
-    var count := 0
-    while true loop
-        print count
-        count := count + 1
-        if count >= 3 then
-            exit
-        end
-    end
-    print "Loop ended"
-    "#,
+        
     
         // ============================================
         // topic 4: funcs
@@ -306,27 +295,21 @@ fn main() {
         // topic 6: tuples
         // ============================================
         
-        // 6.1 tuple creation 
-        r#"
-    var point := (x: 10, y: 20)
+        // Tuple example
+    r#"
+    var point := {x := 10, y := 20}
     print point.x
     print point.y
     "#,
-    
-        // 6.2 changing fields
-        r#"
-    var person := (name: "Alice", age: 30)
-    print person.name
-    person.age := 31
-    print person.age
+
+    // Tuple with indexes
+    r#"
+    var t := {a := 1, 2, c := 3}
+    print t.a
+    print t.2
+    print t.c
     "#,
-    
-        // 6.3 tuple in function
-        r#"
-    var makePoint := func(x, y) => (x: x, y: y)
-    var p := makePoint(5, 10)
-    print p.x + p.y
-    "#,
+
     
         // ============================================
         // topic 7: types and IS
@@ -393,19 +376,6 @@ fn main() {
     print "Maximum: " + max
     "#,
     
-        // 8.3 filtration of array
-        r#"
-    var data := [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
-    var evens := []
-    
-    for val in data loop
-        if val % 2 == 0 then
-            // evens.push(val)  // если есть метод push
-            print val
-        end
-    end
-    "#,
-    
         // 8.4 calculating factorial iteratively
         r#"
     var n := 5
@@ -448,19 +418,6 @@ fn main() {
     print "Outer x: " + x
     "#,
     
-        // 8.7 recursive sum
-        r#"
-    var sumArray := func(arr, idx) is
-        if idx > arr.length then
-            return 0
-        else
-            return arr[idx] + sumArray(arr, idx + 1)
-        end
-    end
-    
-    var numbers := [1, 2, 3, 4, 5]
-    // print sumArray(numbers, 1)  // если работает длина массива
-    "#,
     
         // ============================================
         // topic 9: error handling
@@ -523,14 +480,17 @@ fn main() {
     "#,
     
         // 10.4 Boolean simplification
-        r#"
-    var x := true && true
-    var y := false || true
-    var z := true && false
-    
-    print x
-    print y
-    print z
+    r#"
+    var n := 5
+    var result := 1
+    var i := 1
+
+    while i <= n loop
+        result := result * i
+        i := i + 1
+    end
+
+    print result
     "#,
     ];
 

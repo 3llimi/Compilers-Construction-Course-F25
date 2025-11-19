@@ -17,7 +17,7 @@ pub enum Value {
     Function {
         params: Vec<String>,
         body: FuncBody,
-        closure: Environment,  // Captured environment for closures
+        closure: Rc<RefCell<Environment>>,  // Captured environment for closures
     },
 }
 
@@ -63,16 +63,22 @@ impl Environment {
     pub fn define(&mut self, name: String, value: Value) {
         self.variables.insert(name, value);
     }
+    
 
     pub fn get(&self, name: &str) -> Option<Value> {
+        // first in cur scope
         if let Some(value) = self.variables.get(name) {
-            Some(value.clone())
-        } else if let Some(ref parent) = self.parent {
-            parent.borrow().get(name)  
-        } else {
-            None
+            return Some(value.clone());
         }
+        
+        // after in parent scope
+        if let Some(parent) = &self.parent {
+            return parent.borrow().get(name);
+        }
+        
+        None
     }
+    
 
     pub fn assign(&mut self, name: &str, value: Value) -> bool {
         if self.variables.contains_key(name) {
@@ -145,13 +151,42 @@ impl Interpreter {
         }
     }
 
+    fn is_truthy(&self, value: &Value) -> bool {
+        match value {
+            Value::Bool(b) => *b,
+            Value::None => false,
+            Value::Integer(0) => false,
+            Value::Real(f) if *f == 0.0 => false,
+            Value::String(s) if s.is_empty() => false,
+            Value::Array(a) if a.is_empty() => false,
+            _ => true,
+        }
+    }
+
+    fn restore_parent(&mut self) {
+        let parent = {
+            let env_borrow = self.environment.borrow();
+            env_borrow.parent.as_ref().unwrap().clone()
+        };
+        self.environment = parent;
+    }
+
     fn execute_stmt(&mut self, stmt: &Stmt) -> InterpreterResult<()> {
         match stmt {
             Stmt::VarDecl { name, init } => {
+                if matches!(init, Expr::Func { .. }) {
+                    self.environment.borrow_mut().define(name.clone(), Value::None);
+                }
+                
+                // calc the val
                 let value = self.evaluate_expr(init)?;
-                self.environment.borrow_mut().define(name.clone(), value);  
+                
+                // update val (change None to real func)
+                self.environment.borrow_mut().define(name.clone(), value);
+                
                 Ok(())
             }
+            
 
             Stmt::Assign { target, value } => {
                 let val = self.evaluate_expr(value)?;
@@ -171,15 +206,30 @@ impl Interpreter {
 
             Stmt::If { cond, then_branch, else_branch } => {
                 let cond_val = self.evaluate_expr(cond)?;
-                let cond_bool = self.value_to_bool(&cond_val)?;
-
-                if cond_bool {
-                    self.execute_block(then_branch)?;
+                
+                if self.is_truthy(&cond_val) {
+                    let prev_env = Rc::clone(&self.environment);
+                    self.environment = Rc::new(RefCell::new(Environment::new_with_parent(prev_env)));
+                    
+                    for stmt in then_branch {
+                        self.execute_stmt(stmt)?;
+                    }
+                    
+                    self.restore_parent();
                 } else if let Some(else_branch) = else_branch {
-                    self.execute_block(else_branch)?;
+                    let prev_env = Rc::clone(&self.environment);
+                    self.environment = Rc::new(RefCell::new(Environment::new_with_parent(prev_env)));
+                    
+                    for stmt in else_branch {
+                        self.execute_stmt(stmt)?;
+                    }
+                    
+                    self.restore_parent();
                 }
+                
                 Ok(())
             }
+            
 
             Stmt::While { cond, body } => {
                 let prev_inside_loop = self.inside_loop;
@@ -328,7 +378,7 @@ impl Interpreter {
     }
 
     fn execute_block(&mut self, stmts: &[Stmt]) -> InterpreterResult<()> {
-        // Создать новый scope
+        // create new scope
         let new_env = Environment::new_with_parent(Rc::clone(&self.environment));
         let old_env = std::mem::replace(
             &mut self.environment,
@@ -409,16 +459,16 @@ impl Interpreter {
                 let mut tuple = HashMap::new();
                 for (i, elem) in elems.iter().enumerate() {
                     let value = self.evaluate_expr(&elem.value)?;
-                    let key = if let Some(ref name) = elem.name {
-                        name.clone()
-                    } else {
-                        // Unnamed tuple element: use index as string (1-indexed)
-                        (i + 1).to_string()
-                    };
-                    tuple.insert(key, value);
+                    
+                    if let Some(ref name) = elem.name {
+                        tuple.insert(name.clone(), value.clone());
+                    }
+                    
+                    tuple.insert((i + 1).to_string(), value);
                 }
                 Ok(Value::Tuple(tuple))
             }
+            
 
             Expr::Range(low, high) => {
                 // Range is evaluated to produce a sequence for for loops
@@ -437,9 +487,10 @@ impl Interpreter {
                 Ok(Value::Function {
                     params: params.clone(),
                     body: body.clone(),
-                    closure: (*self.environment.borrow()).clone(),  
+                    closure: Rc::clone(&self.environment),  
                 })
             }
+            
         }
     }
 
@@ -477,7 +528,6 @@ impl Interpreter {
                 Ok(Value::Bool(left_bool ^ right_bool))
             }
             BinOp::Is => {
-                // This should be handled by IsType expression, but handle it here too
                 Err(InterpreterError::InvalidOperation("'is' operator should be used as 'expr is type'".to_string()))
             }
         }
@@ -506,6 +556,11 @@ impl Interpreter {
             (Value::Integer(a), Value::Real(b)) => Ok(Value::Real(*a as f64 + b)),
             (Value::Real(a), Value::Integer(b)) => Ok(Value::Real(a + *b as f64)),
             (Value::String(a), Value::String(b)) => Ok(Value::String(format!("{}{}", a, b))),
+            (Value::Tuple(a), Value::Tuple(b)) => {
+                let mut result = a.clone();
+                result.extend(b.clone());  // join two HashMap
+                Ok(Value::Tuple(result))
+            }
             (Value::String(a), b) => Ok(Value::String(format!("{}{}", a, self.value_to_string(b)))),
             (a, Value::String(b)) => Ok(Value::String(format!("{}{}", self.value_to_string(a), b))),
             _ => Err(InterpreterError::TypeError("Invalid operands for addition".to_string())),
@@ -721,21 +776,21 @@ impl Interpreter {
                         args.len()
                     )));
                 }
-
-                // Создать новый environment с closure
+    
+                
                 let new_env = Rc::new(RefCell::new(Environment::new_with_parent(
-                    Rc::new(RefCell::new(closure.clone()))
+                    Rc::clone(closure)  
                 )));
                 
                 let old_env = std::mem::replace(&mut self.environment, new_env);
                 let prev_inside_function = self.inside_function;
                 self.inside_function = true;
-
+    
                 // Bind parameters
                 for (param, arg) in params.iter().zip(args.iter()) {
                     self.environment.borrow_mut().define(param.clone(), arg.clone());
                 }
-
+    
                 // Execute function body
                 let result = match body {
                     FuncBody::Expr(expr) => {
@@ -764,7 +819,7 @@ impl Interpreter {
                         Ok(return_val)
                     }
                 };
-
+    
                 self.environment = old_env;
                 self.inside_function = prev_inside_function;
                 result
@@ -772,6 +827,8 @@ impl Interpreter {
             _ => Err(InterpreterError::TypeError("Cannot call non-function value".to_string())),
         }
     }
+    
+    
 
     fn assign_to_target(&mut self, target: &Expr, value: Value) -> InterpreterResult<()> {
         match target {

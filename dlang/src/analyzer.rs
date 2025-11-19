@@ -7,6 +7,13 @@ pub struct SymbolInfo {
     pub declared: bool,
     pub used: bool,
     pub is_function: bool,
+    pub symbol_type: SymbolType,  
+}
+
+#[derive(Debug, Clone)]
+pub enum SymbolType {
+    Variable,
+    Function { param_count: usize },
 }
 
 #[derive(Debug)]
@@ -61,6 +68,16 @@ impl SemanticChecker {
         }
     }
     
+    fn get_symbol(&self, name: &str) -> Option<&SymbolInfo> {
+        // Искать в scope_stack (не scopes!)
+        for scope in self.scope_stack.iter().rev() {
+            if let Some(symbol) = scope.get(name) {
+                return Some(symbol);
+            }
+        }
+        None
+    }
+    
     
     fn is_declared(&self, name: &str) -> bool {
         for scope in self.scope_stack.iter().rev() {
@@ -72,13 +89,17 @@ impl SemanticChecker {
     }
     
     fn declare_var(&mut self, name: String, info: SymbolInfo) -> bool {
-        let current_scope = self.scope_stack.last_mut().unwrap();
-        if current_scope.contains_key(&name) {
-            return false;  // already declared in this scope
+        if let Some(scope) = self.scope_stack.last_mut() {
+            if scope.contains_key(&name) {
+                return false;  // Уже объявлена
+            }
+            scope.insert(name, info);
+            true
+        } else {
+            false
         }
-        current_scope.insert(name, info);
-        true
     }
+    
     
     // arr size in curr scope
     fn record_array_size(&mut self, name: String, size: usize) {
@@ -118,23 +139,41 @@ impl SemanticChecker {
     fn check_stmt(&mut self, stmt: &Stmt) {
         match stmt {
             Stmt::VarDecl { name, init } => {
-                // Check expression first
+                if let Expr::Func { params, .. } = init {
+                    if !self.declare_var(name.clone(), SymbolInfo {
+                        name: name.clone(),
+                        declared: true,
+                        used: false,
+                        is_function: true,
+                        symbol_type: SymbolType::Function {
+                            param_count: params.len(),
+                        },
+                    }) {
+                        self.errors.push(format!("Function '{}' is already declared", name));
+                    }
+                }
+                
+                // Проверить тело функции
                 self.check_expr(init);
                 
-                // Check: Re-declaration in curr scope
-                if !self.declare_var(name.clone(), SymbolInfo {
-                    name: name.clone(),
-                    declared: true,
-                    used: false,
-                    is_function: false,
-                }) {
-                    self.errors.push(format!("Variable '{}' is already declared", name));
-                }
-                
-                if let Expr::Array(elems) = init {
-                    self.record_array_size(name.clone(), elems.len());
+                if !matches!(init, Expr::Func { .. }) {
+                    if !self.declare_var(name.clone(), SymbolInfo {
+                        name: name.clone(),
+                        declared: true,
+                        used: false,
+                        is_function: false,
+                        symbol_type: SymbolType::Variable,
+                    }) {
+                        self.errors.push(format!("Variable '{}' is already declared", name));
+                    }
+                    
+                    // Записать размер массива (если это массив)
+                    if let Expr::Array(elems) = init {
+                        self.record_array_size(name.clone(), elems.len());
+                    }
                 }
             }
+            
             
             
             
@@ -201,6 +240,7 @@ impl SemanticChecker {
                     declared: true,
                     used: false,
                     is_function: false,
+                    symbol_type: SymbolType::Variable,
                 });
                 
                 for stmt in body {
@@ -258,10 +298,28 @@ impl SemanticChecker {
             }
             Expr::Call { callee, args } => {
                 self.check_expr(callee);
+                
                 for arg in args {
                     self.check_expr(arg);
                 }
+                
+                if let Expr::Ident(func_name) = callee.as_ref() {
+                    if let Some(symbol) = self.get_symbol(func_name) {
+                        if let SymbolType::Function { param_count } = symbol.symbol_type {
+                            if args.len() != param_count {
+                                self.errors.push(format!(
+                                    "Function '{}' expects {} arguments, got {}",
+                                    func_name,
+                                    param_count,
+                                    args.len()
+                                ));
+                            }
+                        }
+                    }
+                }
             }
+            
+            
             Expr::Index { target, index } => {
                 self.check_expr(target);
                 self.check_expr(index);
@@ -298,7 +356,8 @@ impl SemanticChecker {
                         name: param.clone(),        
                         declared: true,             
                         used: false,                
-                        is_function: false,         
+                        is_function: false,  
+                        symbol_type: SymbolType::Variable, 
                     });
                 }
                 
@@ -325,7 +384,7 @@ impl SemanticChecker {
             if let Expr::Integer(idx) = index.as_ref() {
                 match target.as_ref() {
                     Expr::Array(elems) => {
-                        // Индексация с 1 по len (включительно)
+                        
                         if *idx < 1 || *idx > elems.len() as i64 {
                             self.errors.push(format!(
                                 "Array index {} out of bounds (valid range: 1..{})", 
@@ -362,6 +421,7 @@ impl SemanticChecker {
 pub struct Optimizer {
     modified: bool,
     constants: HashMap<String, Expr>,
+    shadowed_vars: std::collections::HashSet<String>, 
 }
 
 impl Optimizer {
@@ -369,6 +429,7 @@ impl Optimizer {
         Self {
             modified: false,
             constants: HashMap::new(),
+            shadowed_vars: std::collections::HashSet::new(), 
         }
     }
 
@@ -377,6 +438,10 @@ impl Optimizer {
         loop {
             let mut changed = false;
             self.constants.clear();
+            self.shadowed_vars.clear();
+            
+            self.collect_shadowed_vars(program);
+            
             // Run all optimizations
             changed |= self.collect_constants(program);      
             changed |= self.propagate_constants(program);    
@@ -392,41 +457,80 @@ impl Optimizer {
         }
         self.modified
     }
+    
+    fn collect_shadowed_vars(&mut self, program: &Program) {
+        match program {
+            Program::Stmts(stmts) => {
+                let mut outer_vars = std::collections::HashSet::new();
+                
+                // Собрать переменные внешнего scope
+                for stmt in stmts {
+                    if let Stmt::VarDecl { name, .. } = stmt {
+                        outer_vars.insert(name.clone());
+                    }
+                }
+                
+                // Найти затеняемые переменные во вложенных блоках
+                for stmt in stmts {
+                    self.find_shadowed_in_stmt(stmt, &outer_vars);
+                }
+            }
+        }
+    }
+    
+    fn find_shadowed_in_stmt(&mut self, stmt: &Stmt, outer_vars: &std::collections::HashSet<String>) {
+        match stmt {
+            Stmt::If { then_branch, else_branch, .. } => {
+                self.find_shadowed_in_block(then_branch, outer_vars);
+                if let Some(else_branch) = else_branch {
+                    self.find_shadowed_in_block(else_branch, outer_vars);
+                }
+            }
+            Stmt::While { body, .. } | Stmt::For { body, .. } => {
+                self.find_shadowed_in_block(body, outer_vars);
+            }
+            _ => {}
+        }
+    }
+    
+    fn find_shadowed_in_block(&mut self, stmts: &[Stmt], outer_vars: &std::collections::HashSet<String>) {
+        for stmt in stmts {
+            if let Stmt::VarDecl { name, .. } = stmt {
+                // if there's variable with the same name in outer scope
+                if outer_vars.contains(name) {
+                    self.shadowed_vars.insert(name.clone());
+                }
+            }
+            
+            // recursively for nested blockes
+            self.find_shadowed_in_stmt(stmt, outer_vars);
+        }
+    }
 
-   
     fn collect_constants(&mut self, program: &Program) -> bool {
         match program {
             Program::Stmts(stmts) => {
+                let mut assigned_vars = std::collections::HashSet::new();
+                
+                for stmt in stmts {
+                    self.collect_assigned_vars(stmt, &mut assigned_vars);
+                }
+                
                 for stmt in stmts {
                     if let Stmt::VarDecl { name, init } = stmt {
-                        // Если инициализатор — константа
-                        if self.is_constant_expr(init) {
+                        if self.is_constant_expr(init) 
+                            && !assigned_vars.contains(name)
+                            && !self.shadowed_vars.contains(name) {  
                             self.constants.insert(name.clone(), init.clone());
                         }
                     }
                 }
             }
         }
-        false  // Не меняет AST, только собирает информацию
+        false
     }
     
-  
-    fn propagate_constants(&mut self, program: &mut Program) -> bool {
-        let mut changed = false;
-        
-        match program {
-            Program::Stmts(stmts) => {
-                for stmt in stmts.iter_mut() {
-                    if self.propagate_in_stmt(stmt) {
-                        changed = true;
-                    }
-                }
-            }
-        }
-        
-        changed
-    }
-    
+   
     fn propagate_in_stmt(&mut self, stmt: &mut Stmt) -> bool {
         let mut changed = false;
         
@@ -435,13 +539,45 @@ impl Optimizer {
                 if self.propagate_in_expr(cond) {
                     changed = true;
                 }
-                for s in then_branch {
-                    if self.propagate_in_stmt(s) {
-                        changed = true;
+                
+                if !self.has_vardecl(then_branch) {
+                    for s in then_branch {
+                        if self.propagate_in_stmt(s) {
+                            changed = true;
+                        }
                     }
                 }
+                
                 if let Some(else_branch) = else_branch {
-                    for s in else_branch {
+                    if !self.has_vardecl(else_branch) {
+                        for s in else_branch {
+                            if self.propagate_in_stmt(s) {
+                                changed = true;
+                            }
+                        }
+                    }
+                }
+            }
+            Stmt::While { cond, body } => {
+                if self.propagate_in_expr(cond) {
+                    changed = true;
+                }
+                
+                if !self.has_vardecl(body) {
+                    for s in body {
+                        if self.propagate_in_stmt(s) {
+                            changed = true;
+                        }
+                    }
+                }
+            }
+            Stmt::For { iterable, body, .. } => {
+                if self.propagate_in_expr(iterable) {
+                    changed = true;
+                }
+                
+                if !self.has_vardecl(body) {
+                    for s in body {
                         if self.propagate_in_stmt(s) {
                             changed = true;
                         }
@@ -466,10 +602,61 @@ impl Optimizer {
         changed
     }
     
+    fn has_vardecl(&self, stmts: &[Stmt]) -> bool {
+        stmts.iter().any(|s| matches!(s, Stmt::VarDecl { .. }))
+    }
+    
+    
+    fn collect_assigned_vars(&self, stmt: &Stmt, assigned: &mut std::collections::HashSet<String>) {
+        match stmt {
+            Stmt::Assign { target, .. } => {
+                if let Expr::Ident(name) = target {
+                    assigned.insert(name.clone());
+                }
+            }
+            Stmt::If { then_branch, else_branch, .. } => {
+                for s in then_branch {
+                    self.collect_assigned_vars(s, assigned);
+                }
+                if let Some(else_branch) = else_branch {
+                    for s in else_branch {
+                        self.collect_assigned_vars(s, assigned);
+                    }
+                }
+            }
+            Stmt::While { body, .. } | Stmt::For { body, .. } => {
+                for s in body {
+                    self.collect_assigned_vars(s, assigned);
+                }
+            }
+            _ => {}
+        }
+    }
+    
+    
+  
+    fn propagate_constants(&mut self, program: &mut Program) -> bool {
+        let mut changed = false;
+        
+        match program {
+            Program::Stmts(stmts) => {
+                for stmt in stmts.iter_mut() {
+                    if self.propagate_in_stmt(stmt) {
+                        changed = true;
+                    }
+                }
+            }
+        }
+        
+        changed
+    }
+    
+    
+    
     fn propagate_in_expr(&mut self, expr: &mut Expr) -> bool {
         match expr {
             Expr::Ident(name) => {
-                // Если это известная константа - заменить
+                // if it's known constant - change
                 if let Some(const_expr) = self.constants.get(name) {
                     *expr = const_expr.clone();
                     return true;
@@ -617,6 +804,7 @@ impl Optimizer {
                         if *b != 0 {
                             Some(Expr::Integer(a / b))
                         } else {
+                            eprintln!("Warning: Division by zero detected during optimization");
                             None
                         }
                     }
@@ -657,6 +845,8 @@ impl Optimizer {
                         Some(Expr::Real(a * b))
                     }
 
+
+                    
                     
                     (Expr::Ident(_), BinOp::Add, Expr::Integer(0)) => Some(*left.clone()),
                     (Expr::Integer(0), BinOp::Add, Expr::Ident(_)) => Some(*right.clone()),
@@ -679,6 +869,7 @@ impl Optimizer {
                         if *b != 0.0 {
                             Some(Expr::Real(a / b))
                         } else {
+                            eprintln!("Warning: Division by zero detected during optimization");
                             None
                         }
                     }
@@ -720,10 +911,10 @@ impl Optimizer {
                         if contains_vardecl(then_branch) || 
                            else_branch.as_ref().map(|b| contains_vardecl(b)).unwrap_or(false) {
                             i += 1;
-                            continue;  // Пропустить оптимизацию
+                            continue;  // skip optimization
                         }
                         
-                        // Безопасная оптимизация
+                        // safe optimization
                         if let Expr::Bool(true) = cond {
                             let then_clone = then_branch.clone();
                             stmts.splice(i..=i, then_clone);
@@ -883,7 +1074,7 @@ impl Optimizer {
         match stmt {
             Stmt::VarDecl { init, .. } => {
                 self.collect_used_vars_expr(init, used_vars);
-                // Note: we're collecting vars used in init, but the decl itself is being removed if unused
+                // we're collecting vars used in init, but the decl itself is being removed if unused
             }
             Stmt::Assign { target, value } => {
                 self.collect_used_vars_expr(target, used_vars);
